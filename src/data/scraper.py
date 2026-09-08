@@ -3,7 +3,26 @@ import requests
 import re
 import time
 import random
+from ddgs import DDGS
 from datetime import datetime, timedelta
+
+def get_reddit_data():
+    """Fetches stories from Reddit /r/technology via DuckDuckGo Search."""
+    query = 'site:reddit.com/r/technology "acquisition" "million"'
+    results = []
+    try:
+        with DDGS() as ddgs:
+            # We fetch a few results to get some recent Reddit discussions
+            res = ddgs.text(query, max_results=20)
+            if res:
+                for r in res:
+                    results.append({
+                        'title': r.get('title', ''),
+                        'created_at': datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ') # DDGS doesn't give exact Reddit dates easily, default to recent for live/historical fallback
+                    })
+    except Exception as e:
+        print(f"Reddit DDGS Error: {e}")
+    return results
 
 def get_hn_data(query, days_ago=3*365):
     """Fetches stories from Hacker News via Algolia API."""
@@ -51,8 +70,10 @@ def extract_entities(title):
     return acquirer, company, value_m
 
 def get_real_historical_ma_data():
-    """Fetches real historical M&A data from HackerNews (past 3 years, >= $50M)."""
-    hits = get_hn_data("acquired OR acquisition billion OR million")
+    """Fetches real historical M&A data from HackerNews and Reddit (past 3 years, >= $50M)."""
+    hn_hits = get_hn_data("acquired OR acquisition billion OR million")
+    reddit_hits = get_reddit_data()
+    hits = hn_hits + reddit_hits
 
     data = []
     for hit in hits:
@@ -92,9 +113,23 @@ def get_real_historical_ma_data():
     return df
 
 def get_real_live_ma_data():
-    """Fetches real 'in talks' live M&A data from HackerNews."""
+    """Fetches real 'in talks' live M&A data from HackerNews and Reddit."""
     # Look for recent rumors/talks
-    hits = get_hn_data("acquisition talks OR acquiring rumor", days_ago=90) # Last 90 days for "live"
+    hn_hits = get_hn_data("acquisition talks OR acquiring rumor", days_ago=90) # Last 90 days for "live"
+
+    # Simple query for Reddit live
+    query_live = 'site:reddit.com/r/technology "acquisition talks" OR "rumored"'
+    reddit_hits = []
+    try:
+        with DDGS() as ddgs:
+            res = ddgs.text(query_live, max_results=10)
+            if res:
+                for r in res:
+                    reddit_hits.append({'title': r.get('title', '')})
+    except:
+        pass
+
+    hits = hn_hits + reddit_hits
 
     data = []
     categories = ['AI', 'Fintech', 'SaaS', 'E-commerce', 'Healthtech', 'Cybersecurity', 'Web3', 'Edtech']
